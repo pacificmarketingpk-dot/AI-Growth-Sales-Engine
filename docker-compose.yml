@@ -1,0 +1,58 @@
+# Production stack: PostgreSQL + FastAPI + Nginx (SPA + /api proxy).
+# Optional automatic HTTPS: docker compose --profile tls up -d   (see README)
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: age
+      POSTGRES_DB: age
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U age -d age"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://age:${POSTGRES_PASSWORD}@db:5432/age
+      ENVIRONMENT: production
+      DB_AUTO_CREATE: "false"
+      TRUST_PROXY_HEADERS: "true"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-80}:80"
+    depends_on:
+      - backend
+
+  # Optional: Caddy obtains and renews a Let's Encrypt certificate for $DOMAIN.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in .env to use the tls profile}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  caddy_data:

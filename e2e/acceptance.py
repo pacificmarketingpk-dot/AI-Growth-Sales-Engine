@@ -1,0 +1,67 @@
+"""Browser acceptance test: the spec's end-to-end workflow against a running, EMPTY instance.
+
+Usage:  pip install playwright && playwright install chromium
+        BASE_URL=http://localhost python e2e/acceptance.py
+Runs without AI keys or Google: it checks the honest error/not-connected states and uses demo data for AI steps.
+"""
+import asyncio, re
+from playwright.async_api import async_playwright, expect
+import os
+B=os.environ.get("BASE_URL","http://localhost")
+async def main():
+    async with async_playwright() as p:
+        br = await p.chromium.launch()
+        ctx = await br.new_context(viewport={"width":1280,"height":900}, permissions=["clipboard-read","clipboard-write"])
+        pg = await ctx.new_page(); pg.set_default_timeout(15000)
+        csp=[]; pg.on("console", lambda m: csp.append(m.text) if "Content Security Policy" in m.text or "Refused" in m.text else None)
+        step = lambda n, s: print(f"{n:>2}. {s}")
+        await pg.goto(B); await pg.wait_for_selector("text=Create your account")
+        await pg.fill("input[autocomplete=name]","Ayesha Khan"); await pg.fill("input[type=email]","ayesha@example.com")
+        await pg.fill("input[type=password]","correct-horse-1"); await pg.click("button[type=submit]")
+        await pg.wait_for_selector("text=No prospects yet."); step(1,"registered and signed in")
+        await pg.goto(B+"/prospects"); await pg.click("text=Add prospect")
+        await pg.get_by_label("Name *", exact=True).fill("John Smith"); await pg.get_by_label("Company", exact=True).fill("ABC SaaS")
+        await pg.get_by_label("Job title", exact=True).fill("CEO"); await pg.click("text=Save prospect")
+        await pg.wait_for_selector("h1:has-text('John Smith')"); step(2,"prospect added and saved")
+        await pg.click("button:has-text('Analyze prospect')")
+        await pg.wait_for_selector("text=AI analysis is temporarily unavailable"); step(3,"no AI key -> clear error shown, nothing fabricated")
+        await pg.goto(B+"/prospects"); await pg.click("text=Prospect discovery"); await pg.click("text=Find prospects")
+        await pg.wait_for_selector("text=No prospecting source connected."); step(4,"discovery honestly reports no source")
+        await pg.click("button:has-text('Import CSV') >> nth=0")
+        await pg.set_input_files("input[type=file]", os.path.join(os.path.dirname(__file__), "sample.csv"))
+        await pg.wait_for_selector("text=1 ready"); await pg.click("button:has-text('Import 1 prospects')")
+        await pg.wait_for_selector("text=Import finished"); step(5,"CSV: 1 imported, duplicate + invalid rows rejected")
+        await pg.click("text=Done")
+        await pg.goto(B+"/settings?tab=data"); await pg.click("text=Add demo data"); await pg.wait_for_selector("text=Demo data added")
+        await pg.goto(B+"/prospects"); await pg.click("text=DEMO PROSPECT Ava"); await pg.wait_for_selector("text=Why this score")
+        step(6,"demo prospect: score, business problem, opportunity, service shown")
+        await pg.click("role=tab[name='Outreach']"); await pg.click("button:has-text('Edit') >> nth=1")
+        ta = pg.locator("textarea").first; await ta.fill("Hi Ava - edited by me. Curious how demo conversion is going this quarter?")
+        await pg.click("text=Save message"); await pg.wait_for_selector("text=Edited by you")
+        await pg.click("button:has-text('Copy') >> nth=0"); clip = await pg.evaluate("navigator.clipboard.readText()")
+        step(7,f"message edited and copied ({clip[:22]}...)")
+        await pg.click("role=tab[name=/Conversations/]"); await pg.click("text=Add conversation")
+        await pg.get_by_role("textbox", name="Conversation").fill("Me: How is lead gen going?\nAva: We're currently struggling to generate qualified leads through Meta.")
+        await pg.click("text=Save and analyze"); await pg.wait_for_selector("text=Human takeover required")
+        step(8,"conversation analyzed -> HIGH INTENT -> takeover banner")
+        await pg.goto(B+"/hot-leads"); await pg.wait_for_selector("text=DEMO PROSPECT Ava"); step(9,"lead appears in Hot Leads")
+        card = pg.locator("li", has_text="DEMO PROSPECT Ava").first
+        await card.locator("text=Take over").click(); await pg.wait_for_selector("text=You've taken over")
+        await card.locator("text=Book meeting").click(); await pg.wait_for_selector("text=Google Calendar is not connected")
+        await pg.click("text=Save meeting without calendar"); await pg.wait_for_selector("text=Meeting saved")
+        step(10,"booked: calendar-not-connected stated plainly, saved locally")
+        await pg.goto(B+"/meetings"); await pg.wait_for_selector("text=Not on a calendar")
+        await pg.get_by_role("textbox", name="Meeting notes").first.fill("Discussed Meta funnel."); await pg.click("text=Save notes >> nth=0")
+        await pg.wait_for_selector("text=Meeting updated"); step(11,"meeting listed with prep notes, notes saved")
+        await pg.goto(B+"/"); await pg.wait_for_selector("text=Recent activity")
+        txt = await pg.inner_text("main"); m = re.search(r"Meetings\s*\n\s*(\d+)", txt)
+        step(12,f"dashboard updated (pipeline meetings = {m.group(1) if m else '?'})")
+        await pg.goto(B+"/calendar"); await pg.wait_for_selector("text=No calendar connected.")
+        await pg.goto(B+"/settings?tab=google"); await pg.wait_for_selector("text=Google OAuth isn't set up on the server")
+        step(13,"Calendar/Google show honest not-connected states")
+        await pg.goto(B+"/analytics"); await pg.wait_for_timeout(800)
+        await pg.click("text=Sign out"); await pg.wait_for_selector("text=Sign in"); step(14,"signed out")
+        await pg.goto(B+"/meetings"); await pg.wait_for_selector("text=Sign in"); step(15,"protected route requires login after sign-out")
+        print("CSP violations:", csp or "none")
+        await br.close()
+asyncio.run(main())

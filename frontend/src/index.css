@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body { @apply bg-paper text-ink font-sans antialiased; font-size: 15px; line-height: 1.5; }
+  h1, h2, h3 { @apply font-display text-ink; letter-spacing: -0.01em; }
+  :focus-visible { outline: 2px solid #D98E04; outline-offset: 2px; border-radius: 6px; }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-line bg-white px-3 py-2.5 text-[15px] text-ink placeholder:text-ink-muted/70
+      focus:border-pine-3 focus:outline-none focus:ring-2 focus:ring-signal/40 disabled:bg-paper;
+    min-height: 44px;
+  }
+  .label { @apply mb-1 block text-sm font-medium text-ink; }
+  .panel { @apply rounded-lg border border-line bg-white; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  /* Text links that must still meet the 44px touch target */
+  .tap { @apply inline-flex min-h-[44px] items-center; }
+}
